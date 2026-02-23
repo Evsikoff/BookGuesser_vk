@@ -103,6 +103,25 @@ const App: React.FC = () => {
   const [totalCorrectAnswers, setTotalCorrectAnswers] = useState(0);
   const [totalScore, setTotalScore] = useState(0);
   const [showStats, setShowStats] = useState(false);
+
+  const difficultyStats = React.useMemo(() => {
+    const stats: Record<Difficulty, { solved: number; total: number }> = {
+      [Difficulty.VERY_EASY]: { solved: 0, total: 0 },
+      [Difficulty.EASY]: { solved: 0, total: 0 },
+      [Difficulty.MEDIUM]: { solved: 0, total: 0 },
+      [Difficulty.HARD]: { solved: 0, total: 0 },
+    };
+
+    paragraphs.forEach((p) => {
+      stats[p.difficulty].total += 1;
+      if (solvedParagraphIds.includes(p.id)) {
+        stats[p.difficulty].solved += 1;
+      }
+    });
+
+    return stats;
+  }, [solvedParagraphIds]);
+
   // uiBlocked=true until SDK initialises and LoadingAPI.ready() is called
   const [uiBlocked, setUiBlocked] = useState(true);
 
@@ -424,6 +443,14 @@ const App: React.FC = () => {
     setStatus(GameStatus.IDLE);
   }, [persistData]);
 
+  const handleBackToMenu = useCallback(() => {
+    const ysdk = getSDK();
+    if (ysdk) {
+      try { ysdk.features.GameplayAPI.stop(); } catch { /* ignore */ }
+    }
+    setStatus(GameStatus.IDLE);
+  }, []);
+
   const isSelected = (book: Book) => selectedBook?.id === book.id;
   const isCorrect = (book: Book) => currentQuestion?.correctBook.id === book.id;
 
@@ -534,9 +561,19 @@ const App: React.FC = () => {
       {(status === GameStatus.PLAYING || status === GameStatus.RESULT) && currentQuestion && (
         <div className="space-y-6">
           <div className={`flex justify-between items-center px-6 py-3 rounded-2xl shadow-sm border ${isOpenQuestion ? 'bg-amber-50 border-amber-200' : 'bg-white border-stone-100'}`}>
-            <div className="flex items-center gap-2">
-              <span className="text-stone-400 font-bold uppercase tracking-widest text-xs">Счет</span>
-              <span className="text-xl font-bold text-stone-800">{score}</span>
+            <div className="flex items-center gap-4">
+              <button
+                onClick={handleBackToMenu}
+                className="text-stone-400 hover:text-stone-600 transition-colors flex items-center gap-2 group"
+                title="В главное меню"
+              >
+                <i className="fa-solid fa-house text-sm group-hover:scale-110 transition-transform"></i>
+              </button>
+              <div className="h-4 w-px bg-stone-200"></div>
+              <div className="flex items-center gap-2">
+                <span className="text-stone-400 font-bold uppercase tracking-widest text-xs">Счет</span>
+                <span className="text-xl font-bold text-stone-800">{score}</span>
+              </div>
             </div>
             <div className="flex items-center gap-2">
               <div className="flex items-center gap-1 px-2 py-1 bg-stone-100 rounded-full">
@@ -642,7 +679,7 @@ const App: React.FC = () => {
                     )}
                   </div>
                   <button
-                    onClick={startNewRound}
+                    onClick={() => startNewRound()}
                     className="w-full sm:w-auto bg-stone-800 hover:bg-stone-900 text-white font-bold py-3 px-12 rounded-xl transition-all shadow-md hover:shadow-lg active:scale-95"
                   >
                     Следующий отрывок
@@ -663,6 +700,7 @@ const App: React.FC = () => {
           solvedParagraphIdsCount={solvedParagraphIds.length}
           totalParagraphsCount={paragraphs.length}
           failedQuestionsCount={failedQuestions.length}
+          difficultyStats={difficultyStats}
         />
       )}
     </Layout>

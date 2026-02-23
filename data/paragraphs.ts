@@ -509,7 +509,7 @@ export const paragraphs: Paragraph[] = [
       "b135",
       "b136",
       "b138",
-      "b138",
+      "b137",
       "b140"
     ],
     difficulty: Difficulty.EASY

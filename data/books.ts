@@ -682,7 +682,7 @@ export const books: Book[] = [
     author: "Олдос Хаксли"
   },
   {
-    id: "b138",
+    id: "b137",
     title: "Как закалялась сталь",
     author: "Николай Островский"
   },
