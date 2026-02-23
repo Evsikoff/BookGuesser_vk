@@ -2,6 +2,7 @@ import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { Layout } from './components/Layout';
 import { BookOption } from './components/BookOption';
 import { BookAutocomplete } from './components/BookAutocomplete';
+import { StatsModal } from './components/StatsModal';
 import { fetchBookQuestion } from './services/geminiService';
 import { Question, Book, GameStatus, FailedQuestion, Difficulty } from './types';
 import { paragraphs } from './data/paragraphs';
@@ -25,6 +26,9 @@ import { initYSDK, initPlayer, getSDK, getPlayerInstance } from './services/ysdk
 const STORAGE_KEY = "bookguesser.correctParagraphIds";
 const FAILED_STORAGE_KEY = "bookguesser.failedQuestions";
 const QUESTION_COUNT_KEY = "bookguesser.questionCount";
+const BEST_STREAK_KEY = "bookguesser.bestStreak";
+const TOTAL_CORRECT_KEY = "bookguesser.totalCorrectAnswers";
+const TOTAL_SCORE_KEY = "bookguesser.totalScore";
 
 function loadFromLocalStorage() {
   let solvedParagraphIds: string[] = [];
@@ -62,7 +66,26 @@ function loadFromLocalStorage() {
     if (raw) questionCount = parseInt(raw, 10) || 0;
   } catch { /* ignore */ }
 
-  return { solvedParagraphIds, failedQuestions, questionCount };
+  let bestStreak = 0;
+  let totalCorrectAnswers = 0;
+  let totalScore = 0;
+
+  try {
+    const raw = localStorage.getItem(BEST_STREAK_KEY);
+    if (raw) bestStreak = parseInt(raw, 10) || 0;
+  } catch { /* ignore */ }
+
+  try {
+    const raw = localStorage.getItem(TOTAL_CORRECT_KEY);
+    if (raw) totalCorrectAnswers = parseInt(raw, 10) || 0;
+  } catch { /* ignore */ }
+
+  try {
+    const raw = localStorage.getItem(TOTAL_SCORE_KEY);
+    if (raw) totalScore = parseInt(raw, 10) || 0;
+  } catch { /* ignore */ }
+
+  return { solvedParagraphIds, failedQuestions, questionCount, bestStreak, totalCorrectAnswers, totalScore };
 }
 
 const App: React.FC = () => {
@@ -76,6 +99,10 @@ const App: React.FC = () => {
   const [isOpenQuestion, setIsOpenQuestion] = useState(false);
   const [solvedParagraphIds, setSolvedParagraphIds] = useState<string[]>([]);
   const [failedQuestions, setFailedQuestions] = useState<FailedQuestion[]>([]);
+  const [bestStreak, setBestStreak] = useState(0);
+  const [totalCorrectAnswers, setTotalCorrectAnswers] = useState(0);
+  const [totalScore, setTotalScore] = useState(0);
+  const [showStats, setShowStats] = useState(false);
   // uiBlocked=true until SDK initialises and LoadingAPI.ready() is called
   const [uiBlocked, setUiBlocked] = useState(true);
 
@@ -96,12 +123,18 @@ const App: React.FC = () => {
               'solvedParagraphIds',
               'failedQuestions',
               'questionCount',
+              'bestStreak',
+              'totalCorrectAnswers',
+              'totalScore',
             ]);
 
             const hasCloudData =
               cloudData.solvedParagraphIds !== undefined ||
               cloudData.failedQuestions !== undefined ||
-              cloudData.questionCount !== undefined;
+              cloudData.questionCount !== undefined ||
+              cloudData.bestStreak !== undefined ||
+              cloudData.totalCorrectAnswers !== undefined ||
+              cloudData.totalScore !== undefined;
 
             if (hasCloudData) {
               const cloudSolved = cloudData.solvedParagraphIds;
@@ -127,6 +160,18 @@ const App: React.FC = () => {
                   typeof cloudCount === 'number'
                     ? cloudCount
                     : loadedData.questionCount,
+                bestStreak:
+                  typeof cloudData.bestStreak === 'number'
+                    ? cloudData.bestStreak
+                    : loadedData.bestStreak,
+                totalCorrectAnswers:
+                  typeof cloudData.totalCorrectAnswers === 'number'
+                    ? cloudData.totalCorrectAnswers
+                    : loadedData.totalCorrectAnswers,
+                totalScore:
+                  typeof cloudData.totalScore === 'number'
+                    ? cloudData.totalScore
+                    : loadedData.totalScore,
               };
             }
           } catch (e) {
@@ -138,6 +183,9 @@ const App: React.FC = () => {
       setSolvedParagraphIds(loadedData.solvedParagraphIds);
       setFailedQuestions(loadedData.failedQuestions);
       setQuestionCount(loadedData.questionCount);
+      setBestStreak(loadedData.bestStreak);
+      setTotalCorrectAnswers(loadedData.totalCorrectAnswers);
+      setTotalScore(loadedData.totalScore);
 
       // Block UI, signal that game is ready to Yandex, then unblock
       setUiBlocked(true);
@@ -162,6 +210,9 @@ const App: React.FC = () => {
       setSolvedParagraphIds(loadedData.solvedParagraphIds);
       setFailedQuestions(loadedData.failedQuestions);
       setQuestionCount(loadedData.questionCount);
+      setBestStreak(loadedData.bestStreak);
+      setTotalCorrectAnswers(loadedData.totalCorrectAnswers);
+      setTotalScore(loadedData.totalScore);
       setUiBlocked(false);
     });
   }, []);
@@ -171,6 +222,9 @@ const App: React.FC = () => {
     solvedParagraphIds?: string[];
     failedQuestions?: FailedQuestion[];
     questionCount?: number;
+    bestStreak?: number;
+    totalCorrectAnswers?: number;
+    totalScore?: number;
   }) => {
     if (updates.solvedParagraphIds !== undefined) {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(updates.solvedParagraphIds));
@@ -181,6 +235,15 @@ const App: React.FC = () => {
     if (updates.questionCount !== undefined) {
       localStorage.setItem(QUESTION_COUNT_KEY, String(updates.questionCount));
     }
+    if (updates.bestStreak !== undefined) {
+      localStorage.setItem(BEST_STREAK_KEY, String(updates.bestStreak));
+    }
+    if (updates.totalCorrectAnswers !== undefined) {
+      localStorage.setItem(TOTAL_CORRECT_KEY, String(updates.totalCorrectAnswers));
+    }
+    if (updates.totalScore !== undefined) {
+      localStorage.setItem(TOTAL_SCORE_KEY, String(updates.totalScore));
+    }
 
     const player = getPlayerInstance();
     if (player) {
@@ -190,12 +253,17 @@ const App: React.FC = () => {
     }
   }, []);
 
-  const startNewRound = useCallback(async () => {
+  const startNewRound = useCallback(async (
+    overrideSolved?: string[],
+    overrideFailed?: FailedQuestion[]
+  ) => {
+    const effectiveSolved = overrideSolved ?? solvedParagraphIds;
+    const effectiveFailed = overrideFailed ?? failedQuestions;
     setStatus(GameStatus.LOADING);
     setSelectedBook(null);
     setError(null);
     try {
-      const question = await fetchBookQuestion(solvedParagraphIds, failedQuestions);
+      const question = await fetchBookQuestion(effectiveSolved, effectiveFailed);
       if (!question) {
         setCurrentQuestion(null);
         setStatus(GameStatus.COMPLETED);
@@ -226,6 +294,30 @@ const App: React.FC = () => {
     startNewRound();
   }, [startNewRound]);
 
+  // Called when user clicks "Новая игра" — resets all progress and starts fresh
+  const handleNewGame = useCallback(() => {
+    setSolvedParagraphIds([]);
+    setFailedQuestions([]);
+    setQuestionCount(0);
+    setBestStreak(0);
+    setTotalCorrectAnswers(0);
+    setTotalScore(0);
+    persistData({
+      solvedParagraphIds: [], failedQuestions: [], questionCount: 0,
+      bestStreak: 0, totalCorrectAnswers: 0, totalScore: 0,
+    });
+    setScore(0);
+    setStreak(0);
+    setSelectedBook(null);
+    setCurrentQuestion(null);
+    setIsOpenQuestion(false);
+    const ysdk = getSDK();
+    if (ysdk) {
+      try { ysdk.features.GameplayAPI.start(); } catch { /* ignore if unavailable */ }
+    }
+    startNewRound([], []);
+  }, [persistData, startNewRound]);
+
   const handleSelect = (book: Book) => {
     if (status !== GameStatus.PLAYING || !currentQuestion) return;
 
@@ -238,8 +330,23 @@ const App: React.FC = () => {
     if (isCorrect) {
       const basePoints = 100 + (streak * 25);
       const points = isOpenQuestion ? basePoints * 3 : basePoints;
+      const newStreak = streak + 1;
+      const newTotalScore = totalScore + points;
+      const newTotalCorrect = totalCorrectAnswers + 1;
+      const newBestStreak = Math.max(bestStreak, newStreak);
+
       setScore(prev => prev + points);
-      setStreak(prev => prev + 1);
+      setStreak(newStreak);
+      setTotalScore(newTotalScore);
+      setTotalCorrectAnswers(newTotalCorrect);
+      setBestStreak(newBestStreak);
+
+      persistData({
+        totalScore: newTotalScore,
+        totalCorrectAnswers: newTotalCorrect,
+        ...(newBestStreak > bestStreak ? { bestStreak: newBestStreak } : {}),
+      });
+
       setSolvedParagraphIds((prev) => {
         if (prev.includes(currentQuestion.paragraphId)) return prev;
         const next = [...prev, currentQuestion.paragraphId];
@@ -302,7 +409,13 @@ const App: React.FC = () => {
     setSolvedParagraphIds([]);
     setFailedQuestions([]);
     setQuestionCount(0);
-    persistData({ solvedParagraphIds: [], failedQuestions: [], questionCount: 0 });
+    setBestStreak(0);
+    setTotalCorrectAnswers(0);
+    setTotalScore(0);
+    persistData({
+      solvedParagraphIds: [], failedQuestions: [], questionCount: 0,
+      bestStreak: 0, totalCorrectAnswers: 0, totalScore: 0,
+    });
     setIsOpenQuestion(false);
     setScore(0);
     setStreak(0);
@@ -330,17 +443,58 @@ const App: React.FC = () => {
             <i className="fa-solid fa-book-open"></i>
           </div>
           <h2 className="text-2xl font-bold text-stone-800 mb-4 serif">Добро пожаловать, Библиофил</h2>
-          <p className="text-stone-600 mb-8 leading-relaxed">
+          <p className="text-stone-600 mb-6 leading-relaxed">
             Я представлю вам один абзац из известного литературного произведения.
             Ваша задача — узнать книгу из 20 предложенных вариантов.
             Точность важна, а серии правильных ответов приносят бонусные очки.
           </p>
-          <button
-            onClick={handleEnterLibrary}
-            className="w-full bg-stone-800 hover:bg-stone-900 text-white font-bold py-4 px-8 rounded-2xl transition-all shadow-lg hover:shadow-xl active:scale-95"
-          >
-            Войти в библиотеку
-          </button>
+
+          {questionCount > 0 && (
+            <div className="mb-6 p-4 bg-amber-50 rounded-2xl border border-amber-100 text-left">
+              <p className="text-xs font-bold text-amber-700 uppercase tracking-widest mb-3">
+                Ваш прогресс
+              </p>
+              <div className="grid grid-cols-3 gap-3 text-center">
+                <div>
+                  <div className="text-xl font-bold text-stone-800">{totalScore.toLocaleString('ru-RU')}</div>
+                  <div className="text-xs text-stone-500 mt-0.5">Счёт</div>
+                </div>
+                <div>
+                  <div className="text-xl font-bold text-stone-800">{solvedParagraphIds.length}</div>
+                  <div className="text-xs text-stone-500 mt-0.5">Открыто книг</div>
+                </div>
+                <div>
+                  <div className="text-xl font-bold text-stone-800">{bestStreak}</div>
+                  <div className="text-xs text-stone-500 mt-0.5">Лучшая серия</div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="flex flex-col gap-3">
+            <button
+              onClick={handleEnterLibrary}
+              className="w-full bg-amber-700 hover:bg-amber-800 text-white font-bold py-4 px-8 rounded-2xl transition-all shadow-lg hover:shadow-xl active:scale-95"
+            >
+              <i className="fa-solid fa-book-open mr-2"></i>
+              Войти в библиотеку
+            </button>
+            <button
+              onClick={handleNewGame}
+              className="w-full bg-stone-800 hover:bg-stone-900 text-white font-bold py-4 px-8 rounded-2xl transition-all shadow-lg hover:shadow-xl active:scale-95"
+            >
+              <i className="fa-solid fa-rotate-right mr-2"></i>
+              Новая игра
+            </button>
+            <button
+              onClick={() => setShowStats(true)}
+              className="w-full bg-white hover:bg-stone-50 text-stone-700 font-bold py-4 px-8 rounded-2xl transition-all shadow-sm border border-stone-200 hover:shadow-md active:scale-95"
+            >
+              <i className="fa-solid fa-chart-bar mr-2"></i>
+              Статистика
+            </button>
+          </div>
+
           {error && <p className="mt-4 text-red-500 text-sm font-medium">{error}</p>}
         </div>
       )}
@@ -384,7 +538,19 @@ const App: React.FC = () => {
               <span className="text-stone-400 font-bold uppercase tracking-widest text-xs">Счет</span>
               <span className="text-xl font-bold text-stone-800">{score}</span>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1 px-2 py-1 bg-stone-100 rounded-full">
+                <i className="fa-solid fa-hashtag text-stone-400 text-xs"></i>
+                <span className="text-stone-600 font-bold text-xs">{questionCount}</span>
+              </div>
+              {questionCount >= 3 && (
+                <div className="flex items-center gap-1 px-2 py-1 bg-stone-100 rounded-full">
+                  <i className="fa-solid fa-bullseye text-stone-400 text-xs"></i>
+                  <span className="text-stone-600 font-bold text-xs">
+                    {Math.round((totalCorrectAnswers / questionCount) * 100)}%
+                  </span>
+                </div>
+              )}
               {isOpenQuestion && (
                 <div className="flex items-center gap-2 px-3 py-1 bg-amber-200 rounded-full border border-amber-300">
                   <i className="fa-solid fa-star text-amber-700 text-xs"></i>
@@ -485,6 +651,19 @@ const App: React.FC = () => {
             </div>
           )}
         </div>
+      )}
+
+      {showStats && (
+        <StatsModal
+          onClose={() => setShowStats(false)}
+          totalScore={totalScore}
+          questionCount={questionCount}
+          totalCorrectAnswers={totalCorrectAnswers}
+          bestStreak={bestStreak}
+          solvedParagraphIdsCount={solvedParagraphIds.length}
+          totalParagraphsCount={paragraphs.length}
+          failedQuestionsCount={failedQuestions.length}
+        />
       )}
     </Layout>
   );
