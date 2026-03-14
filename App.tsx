@@ -21,7 +21,7 @@ const DIFFICULTY_COLORS: Record<Difficulty, string> = {
   [Difficulty.HARD]: 'bg-red-600',
 };
 
-import { initYSDK, initPlayer, getSDK, getPlayerInstance } from './services/ysdkService';
+import { initVKBridge, isVKBridgeReady, storageGet, storageSet, showInterstitialAd } from './services/vkBridgeService';
 
 const STORAGE_KEY = "bookguesser.correctParagraphIds";
 const FAILED_STORAGE_KEY = "bookguesser.failedQuestions";
@@ -122,43 +122,40 @@ const App: React.FC = () => {
     return stats;
   }, [solvedParagraphIds]);
 
-  // uiBlocked=true until SDK initialises and LoadingAPI.ready() is called
+  // uiBlocked=true until VK Bridge initialises and cloud data is loaded
   const [uiBlocked, setUiBlocked] = useState(true);
 
   // Count every book selection to show a fullscreen ad every 4th time
   const selectionCountRef = useRef(0);
 
-  // Initialize SDK, load cloud data (with localStorage fallback), then signal ready
+  // Initialize VK Bridge, load cloud data (with localStorage fallback), then unblock UI
   useEffect(() => {
     const initialize = async () => {
-      const ysdk = await initYSDK();
       let loadedData = loadFromLocalStorage();
 
-      if (ysdk) {
-        const player = await initPlayer(ysdk);
-        if (player) {
-          try {
-            const cloudData = await player.getData([
-              'solvedParagraphIds',
-              'failedQuestions',
-              'questionCount',
-              'bestStreak',
-              'totalCorrectAnswers',
-              'totalScore',
-            ]);
+      const vkReady = await initVKBridge();
 
-            const hasCloudData =
-              cloudData.solvedParagraphIds !== undefined ||
-              cloudData.failedQuestions !== undefined ||
-              cloudData.questionCount !== undefined ||
-              cloudData.bestStreak !== undefined ||
-              cloudData.totalCorrectAnswers !== undefined ||
-              cloudData.totalScore !== undefined;
+      if (vkReady) {
+        try {
+          const stored = await storageGet([
+            STORAGE_KEY,
+            FAILED_STORAGE_KEY,
+            QUESTION_COUNT_KEY,
+            BEST_STREAK_KEY,
+            TOTAL_CORRECT_KEY,
+            TOTAL_SCORE_KEY,
+          ]);
 
-            if (hasCloudData) {
-              const cloudSolved = cloudData.solvedParagraphIds;
-              const cloudFailed = cloudData.failedQuestions;
-              const cloudCount = cloudData.questionCount;
+          const hasCloudData = Object.values(stored).some((v) => v !== '');
+
+          if (hasCloudData) {
+            try {
+              const cloudSolved = stored[STORAGE_KEY] ? JSON.parse(stored[STORAGE_KEY]) : undefined;
+              const cloudFailed = stored[FAILED_STORAGE_KEY] ? JSON.parse(stored[FAILED_STORAGE_KEY]) : undefined;
+              const cloudCount = stored[QUESTION_COUNT_KEY] ? parseInt(stored[QUESTION_COUNT_KEY], 10) : undefined;
+              const cloudBestStreak = stored[BEST_STREAK_KEY] ? parseInt(stored[BEST_STREAK_KEY], 10) : undefined;
+              const cloudTotalCorrect = stored[TOTAL_CORRECT_KEY] ? parseInt(stored[TOTAL_CORRECT_KEY], 10) : undefined;
+              const cloudTotalScore = stored[TOTAL_SCORE_KEY] ? parseInt(stored[TOTAL_SCORE_KEY], 10) : undefined;
 
               loadedData = {
                 solvedParagraphIds: Array.isArray(cloudSolved)
@@ -175,27 +172,25 @@ const App: React.FC = () => {
                         typeof (i as FailedQuestion).failedAt === 'number'
                     )
                   : loadedData.failedQuestions,
-                questionCount:
-                  typeof cloudCount === 'number'
-                    ? cloudCount
-                    : loadedData.questionCount,
-                bestStreak:
-                  typeof cloudData.bestStreak === 'number'
-                    ? cloudData.bestStreak
-                    : loadedData.bestStreak,
-                totalCorrectAnswers:
-                  typeof cloudData.totalCorrectAnswers === 'number'
-                    ? cloudData.totalCorrectAnswers
-                    : loadedData.totalCorrectAnswers,
-                totalScore:
-                  typeof cloudData.totalScore === 'number'
-                    ? cloudData.totalScore
-                    : loadedData.totalScore,
+                questionCount: typeof cloudCount === 'number' && !isNaN(cloudCount)
+                  ? cloudCount
+                  : loadedData.questionCount,
+                bestStreak: typeof cloudBestStreak === 'number' && !isNaN(cloudBestStreak)
+                  ? cloudBestStreak
+                  : loadedData.bestStreak,
+                totalCorrectAnswers: typeof cloudTotalCorrect === 'number' && !isNaN(cloudTotalCorrect)
+                  ? cloudTotalCorrect
+                  : loadedData.totalCorrectAnswers,
+                totalScore: typeof cloudTotalScore === 'number' && !isNaN(cloudTotalScore)
+                  ? cloudTotalScore
+                  : loadedData.totalScore,
               };
+            } catch (e) {
+              console.error('Failed to parse VK cloud data:', e);
             }
-          } catch (e) {
-            console.error('Failed to load cloud data:', e);
           }
+        } catch (e) {
+          console.error('Failed to load VK storage:', e);
         }
       }
 
@@ -205,21 +200,6 @@ const App: React.FC = () => {
       setBestStreak(loadedData.bestStreak);
       setTotalCorrectAnswers(loadedData.totalCorrectAnswers);
       setTotalScore(loadedData.totalScore);
-
-      // Block UI, signal that game is ready to Yandex, then unblock
-      setUiBlocked(true);
-      if (ysdk) {
-        try {
-          // Read language (e.g. 'ru') – apply to document if needed
-          const lang = ysdk.environment.i18n.lang;
-          if (lang) {
-            document.documentElement.lang = lang;
-          }
-          ysdk.features.LoadingAPI.ready();
-        } catch (e) {
-          console.error('LoadingAPI.ready error:', e);
-        }
-      }
       setUiBlocked(false);
     };
 
@@ -236,7 +216,7 @@ const App: React.FC = () => {
     });
   }, []);
 
-  // Persist to localStorage AND Yandex cloud saves simultaneously
+  // Persist to localStorage AND VK cloud storage simultaneously
   const persistData = useCallback((updates: {
     solvedParagraphIds?: string[];
     failedQuestions?: FailedQuestion[];
@@ -247,28 +227,39 @@ const App: React.FC = () => {
   }) => {
     if (updates.solvedParagraphIds !== undefined) {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(updates.solvedParagraphIds));
+      if (isVKBridgeReady()) {
+        storageSet(STORAGE_KEY, JSON.stringify(updates.solvedParagraphIds));
+      }
     }
     if (updates.failedQuestions !== undefined) {
       localStorage.setItem(FAILED_STORAGE_KEY, JSON.stringify(updates.failedQuestions));
+      if (isVKBridgeReady()) {
+        storageSet(FAILED_STORAGE_KEY, JSON.stringify(updates.failedQuestions));
+      }
     }
     if (updates.questionCount !== undefined) {
       localStorage.setItem(QUESTION_COUNT_KEY, String(updates.questionCount));
+      if (isVKBridgeReady()) {
+        storageSet(QUESTION_COUNT_KEY, String(updates.questionCount));
+      }
     }
     if (updates.bestStreak !== undefined) {
       localStorage.setItem(BEST_STREAK_KEY, String(updates.bestStreak));
+      if (isVKBridgeReady()) {
+        storageSet(BEST_STREAK_KEY, String(updates.bestStreak));
+      }
     }
     if (updates.totalCorrectAnswers !== undefined) {
       localStorage.setItem(TOTAL_CORRECT_KEY, String(updates.totalCorrectAnswers));
+      if (isVKBridgeReady()) {
+        storageSet(TOTAL_CORRECT_KEY, String(updates.totalCorrectAnswers));
+      }
     }
     if (updates.totalScore !== undefined) {
       localStorage.setItem(TOTAL_SCORE_KEY, String(updates.totalScore));
-    }
-
-    const player = getPlayerInstance();
-    if (player) {
-      player.setData(updates, true).catch((e) =>
-        console.error('Yandex cloud save failed:', e)
-      );
+      if (isVKBridgeReady()) {
+        storageSet(TOTAL_SCORE_KEY, String(updates.totalScore));
+      }
     }
   }, []);
 
@@ -304,12 +295,7 @@ const App: React.FC = () => {
     }
   }, [solvedParagraphIds, failedQuestions, questionCount, persistData]);
 
-  // Called when user clicks "Войти в библиотеку" — signals gameplay start to Yandex
   const handleEnterLibrary = useCallback(() => {
-    const ysdk = getSDK();
-    if (ysdk) {
-      try { ysdk.features.GameplayAPI.start(); } catch { /* ignore if unavailable */ }
-    }
     startNewRound();
   }, [startNewRound]);
 
@@ -330,10 +316,6 @@ const App: React.FC = () => {
     setSelectedBook(null);
     setCurrentQuestion(null);
     setIsOpenQuestion(false);
-    const ysdk = getSDK();
-    if (ysdk) {
-      try { ysdk.features.GameplayAPI.start(); } catch { /* ignore if unavailable */ }
-    }
     startNewRound([], []);
   }, [persistData, startNewRound]);
 
@@ -405,22 +387,7 @@ const App: React.FC = () => {
 
     // Show fullscreen ad every 4th book selection
     if (shouldShowAd) {
-      const ysdk = getSDK();
-      if (ysdk) {
-        try {
-          ysdk.features.GameplayAPI.stop();
-          ysdk.adv.showFullscreenAdv({
-            callbacks: {
-              onClose: () => {
-                try { ysdk.features.GameplayAPI.start(); } catch { /* ignore */ }
-              },
-              onError: () => {
-                try { ysdk.features.GameplayAPI.start(); } catch { /* ignore */ }
-              },
-            },
-          });
-        } catch { /* ignore if adv unavailable */ }
-      }
+      showInterstitialAd();
     }
   };
 
@@ -444,10 +411,6 @@ const App: React.FC = () => {
   }, [persistData]);
 
   const handleBackToMenu = useCallback(() => {
-    const ysdk = getSDK();
-    if (ysdk) {
-      try { ysdk.features.GameplayAPI.stop(); } catch { /* ignore */ }
-    }
     setStatus(GameStatus.IDLE);
   }, []);
 
