@@ -35,7 +35,7 @@ export async function storageGet(keys: string[]): Promise<Record<string, string>
     }
     return result;
   } catch (e) {
-    console.error('VK storage get failed:', e);
+    console.error('VK storage get failed:', JSON.stringify(e));
     return {};
   }
 }
@@ -44,7 +44,7 @@ export async function storageSet(key: string, value: string): Promise<void> {
   try {
     await vkBridge.send('VKWebAppStorageSet', { key, value });
   } catch (e) {
-    console.error(`VK storage set failed for key "${key}":`, e);
+    console.error(`VK storage set failed for key "${key}":`, JSON.stringify(e));
   }
 }
 
@@ -52,6 +52,6 @@ export async function showInterstitialAd(): Promise<void> {
   try {
     await vkBridge.send('VKWebAppShowInterstitialAd');
   } catch (e) {
-    console.log('VK interstitial ad not shown:', e);
+    console.log('VK interstitial ad not shown:', JSON.stringify(e));
   }
 }

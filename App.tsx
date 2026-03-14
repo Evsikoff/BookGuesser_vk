@@ -23,12 +23,12 @@ const DIFFICULTY_COLORS: Record<Difficulty, string> = {
 
 import { initVKBridge, isVKBridgeReady, storageGet, storageSet, showInterstitialAd } from './services/vkBridgeService';
 
-const STORAGE_KEY = "bookguesser.correctParagraphIds";
-const FAILED_STORAGE_KEY = "bookguesser.failedQuestions";
-const QUESTION_COUNT_KEY = "bookguesser.questionCount";
-const BEST_STREAK_KEY = "bookguesser.bestStreak";
-const TOTAL_CORRECT_KEY = "bookguesser.totalCorrectAnswers";
-const TOTAL_SCORE_KEY = "bookguesser.totalScore";
+const STORAGE_KEY = "bookguesser_solved";
+const FAILED_STORAGE_KEY = "bookguesser_failed";
+const QUESTION_COUNT_KEY = "bookguesser_count";
+const BEST_STREAK_KEY = "bookguesser_streak";
+const TOTAL_CORRECT_KEY = "bookguesser_correct";
+const TOTAL_SCORE_KEY = "bookguesser_score";
 
 function loadFromLocalStorage() {
   let solvedParagraphIds: string[] = [];
