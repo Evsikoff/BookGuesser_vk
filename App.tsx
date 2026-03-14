@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef, useEffect } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { Layout } from './components/Layout';
 import { BookOption } from './components/BookOption';
 import { BookAutocomplete } from './components/BookAutocomplete';
@@ -125,10 +125,7 @@ const App: React.FC = () => {
   // uiBlocked=true until VK Bridge initialises and cloud data is loaded
   const [uiBlocked, setUiBlocked] = useState(true);
 
-  // Count every book selection to show a fullscreen ad every 4th time
-  const selectionCountRef = useRef(0);
-
-  // Initialize VK Bridge, load cloud data (with localStorage fallback), then unblock UI
+// Initialize VK Bridge, load cloud data (with localStorage fallback), then unblock UI
   useEffect(() => {
     const initialize = async () => {
       let loadedData = loadFromLocalStorage();
@@ -319,11 +316,13 @@ const App: React.FC = () => {
     startNewRound([], []);
   }, [persistData, startNewRound]);
 
+  const handleNextRound = useCallback(async () => {
+    await showInterstitialAd();
+    startNewRound();
+  }, [startNewRound]);
+
   const handleSelect = (book: Book) => {
     if (status !== GameStatus.PLAYING || !currentQuestion) return;
-
-    selectionCountRef.current += 1;
-    const shouldShowAd = selectionCountRef.current % 4 === 0;
 
     setSelectedBook(book);
     const isCorrect = book.id === currentQuestion.correctBook.id;
@@ -384,11 +383,6 @@ const App: React.FC = () => {
     }
 
     setStatus(GameStatus.RESULT);
-
-    // Show fullscreen ad every 4th book selection
-    if (shouldShowAd) {
-      showInterstitialAd();
-    }
   };
 
   const resetProgress = useCallback(() => {
@@ -642,7 +636,7 @@ const App: React.FC = () => {
                     )}
                   </div>
                   <button
-                    onClick={() => startNewRound()}
+                    onClick={handleNextRound}
                     className="w-full sm:w-auto bg-stone-800 hover:bg-stone-900 text-white font-bold py-3 px-12 rounded-xl transition-all shadow-md hover:shadow-lg active:scale-95"
                   >
                     Следующий отрывок
