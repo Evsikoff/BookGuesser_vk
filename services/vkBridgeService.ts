@@ -50,7 +50,9 @@ export async function storageSet(key: string, value: string): Promise<void> {
 
 export async function showInterstitialAd(): Promise<void> {
   try {
-    await vkBridge.send('VKWebAppShowInterstitialAd');
+    const check = await vkBridge.send('VKWebAppCheckNativeAds', { ad_format: 'interstitial' }) as { result: boolean };
+    if (!check.result) return;
+    await vkBridge.send('VKWebAppShowNativeAds', { ad_format: 'interstitial' });
   } catch (e) {
     console.log('VK interstitial ad not shown:', JSON.stringify(e));
   }
