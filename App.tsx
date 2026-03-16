@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { Layout } from './components/Layout';
 import { BookOption } from './components/BookOption';
 import { BookAutocomplete } from './components/BookAutocomplete';
@@ -124,6 +124,7 @@ const App: React.FC = () => {
 
   // uiBlocked=true until VK Bridge initialises and cloud data is loaded
   const [uiBlocked, setUiBlocked] = useState(true);
+  const lastAdShownAt = useRef<number>(0);
 
 // Initialize VK Bridge, load cloud data (with localStorage fallback), then unblock UI
   useEffect(() => {
@@ -317,7 +318,11 @@ const App: React.FC = () => {
   }, [persistData, startNewRound]);
 
   const handleNextRound = useCallback(async () => {
-    await showInterstitialAd();
+    const now = Date.now();
+    if (now - lastAdShownAt.current >= 30000) {
+      await showInterstitialAd();
+      lastAdShownAt.current = now;
+    }
     startNewRound();
   }, [startNewRound]);
 
@@ -422,19 +427,19 @@ const App: React.FC = () => {
       )}
 
       {status === GameStatus.IDLE && (
-        <div className="bg-white p-8 rounded-3xl shadow-xl border border-stone-100 text-center max-w-xl mx-auto">
-          <div className="w-20 h-20 bg-amber-50 text-amber-700 rounded-2xl flex items-center justify-center text-3xl mx-auto mb-6 shadow-inner">
+        <div className="bg-white p-5 sm:p-8 rounded-3xl shadow-xl border border-stone-100 text-center max-w-xl mx-auto">
+          <div className="w-14 h-14 sm:w-20 sm:h-20 bg-amber-50 text-amber-700 rounded-2xl flex items-center justify-center text-2xl sm:text-3xl mx-auto mb-3 sm:mb-6 shadow-inner">
             <i className="fa-solid fa-book-open"></i>
           </div>
-          <h2 className="text-2xl font-bold text-stone-800 mb-4 serif">Добро пожаловать, Библиофил</h2>
-          <p className="text-stone-600 mb-6 leading-relaxed">
+          <h2 className="text-xl sm:text-2xl font-bold text-stone-800 mb-3 sm:mb-4 serif">Добро пожаловать, Библиофил</h2>
+          <p className="text-stone-600 mb-3 sm:mb-6 leading-relaxed text-sm sm:text-base">
             Я представлю вам один абзац из известного литературного произведения.
             Ваша задача — узнать книгу из 20 предложенных вариантов.
             Точность важна, а серии правильных ответов приносят бонусные очки.
           </p>
 
           {questionCount > 0 && (
-            <div className="mb-6 p-4 bg-amber-50 rounded-2xl border border-amber-100 text-left">
+            <div className="mb-3 sm:mb-6 p-3 sm:p-4 bg-amber-50 rounded-2xl border border-amber-100 text-left">
               <p className="text-xs font-bold text-amber-700 uppercase tracking-widest mb-3">
                 Ваш прогресс
               </p>
@@ -560,7 +565,7 @@ const App: React.FC = () => {
             </div>
           </div>
 
-          <div className={`p-8 sm:p-12 rounded-3xl shadow-lg relative overflow-hidden group ${isOpenQuestion ? 'bg-gradient-to-br from-amber-50 to-orange-50 border-2 border-amber-200' : 'bg-white border border-stone-100'}`}>
+          <div className={`pt-14 px-8 pb-8 sm:p-12 rounded-3xl shadow-lg relative overflow-hidden group ${isOpenQuestion ? 'bg-gradient-to-br from-amber-50 to-orange-50 border-2 border-amber-200' : 'bg-white border border-stone-100'}`}>
             <div className="absolute top-4 left-4 flex flex-wrap gap-2 z-20">
               {isOpenQuestion && (
                 <div className="flex items-center gap-2 px-3 py-1 bg-amber-500 text-white rounded-full text-xs font-bold shadow-md">
